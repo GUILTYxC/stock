@@ -50,7 +50,7 @@ def get_ma(symbol, days_range=300):
     return result
 
 
-def get_ma_xl(symbol, days_range=300):
+def get_ma_xl(symbol, end_date, days_range=300):
     # end_date是今天，start_date是往前300天，同时计算ma50和ma200
     today = datetime.today().strftime('%Y%m%d')
 
@@ -63,7 +63,7 @@ def get_ma_xl(symbol, days_range=300):
     else:
         full_code = 'sz' + symbol
     try:
-        result_df = ak.stock_zh_a_daily(symbol=full_code, start_date=start_date, end_date=today, adjust="qfq")
+        result_df = ak.stock_zh_a_daily(symbol=full_code, start_date=start_date, end_date=end_date, adjust="qfq")
     except requests.exceptions.ConnectionError:
         # 等待10秒
         print("请求错误，等待10秒后重试")
@@ -161,7 +161,7 @@ def init_db():
             'wma50 REAL, ema50 REAL,PERatio REAL, PRIMARY KEY (code, date))')
 
 
-def profcess_all_stock():
+def profcess_all_stock(date):
     # 先查所有股票的实时行情，获取市盈率，构建code，市盈率的map
     stock_base_infos = ak.stock_zh_a_spot_em()
     stock_pe_map = {
@@ -180,7 +180,7 @@ def profcess_all_stock():
         # stock_list = stock_list[0:10]
     checked_stock_list = []
     for code, name in tqdm(stock_list, desc="处理进度", unit="只股票"):
-        ma_info = get_ma_xl(code, 100)
+        ma_info = get_ma_xl(code, date, 100)
         check_result = check(ma_info, DEVIATION)
         if check_result:
             deviation = check_result['deviation']
@@ -202,7 +202,7 @@ def profcess_all_stock():
             conn.execute(
                 'REPLACE INTO stock_ma (code, name,ma50,wma50,ema50,price, date,deviation,PERatio) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 (code, name, ma_info['ma50'], ma_info['wma50'], ma_info['ema50'], ma_info['current'],
-                 datetime.today().strftime('%Y%m%d'), deviation, stock_pe_map[code])
+                 date, deviation, stock_pe_map[code])
             )
         # 等待0.5秒再请求
         # time.sleep(0.1)
@@ -210,14 +210,32 @@ def profcess_all_stock():
 
 
 def get_dip_stock():
+    # 如果当前时间是下午四点半以后，date是今天，否则是昨天
+    # 获取当前时间
+    now = datetime.now()
+
+    # 设定下午四点半的时间点
+    cutoff_time = now.replace(hour=16, minute=30, second=0, microsecond=0)
+
+    # 判断日期
+    if now >= cutoff_time:
+        # 下午四点半及以后，使用今天的日期
+        target_date = now
+    else:
+        # 下午四点半之前，使用昨天的日期
+        target_date = now - timedelta(days=1)
+
+    # 格式化为YYYYMMDD形式
+    formatted_date = target_date.strftime("%Y%m%d")
+
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT code, name, ma50,wma50,ema50, price, deviation,PERatio FROM stock_ma WHERE  date = ?",
-                       ('20250806',))
+                       (formatted_date,))
         stock_list = cursor.fetchall()
         # 过滤deviation小于-7的
     if not stock_list or len(stock_list) == 0:
-        return profcess_all_stock()
+        return profcess_all_stock(formatted_date)
     result = [{
         'code': stock[0],
         'name': stock[1],
