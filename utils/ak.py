@@ -227,7 +227,7 @@ def get_dip_stock():
         'price': stock[5],
         'deviation': stock[6],
         'PERatio': stock[7]
-    } for stock in stock_list if stock[4] and stock[4] < -DEVIATION]
+    } for stock in stock_list if stock[6] and stock[6] < -DEVIATION and 'ST' not in stock[1]]
     return result
 
 

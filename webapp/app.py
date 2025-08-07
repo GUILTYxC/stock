@@ -14,16 +14,6 @@ st.title("筛选器")
 # st.caption("筛选当前价低于50日均线 7% 的 A 股")
 
 if st.button("开始筛选"):
-    '''
-            result数据结构
-            {
-            'code': stock[0],
-            'name': stock[1],
-            'ma50': stock[2],
-            'price': stock[3],
-            'deviation': stock[4]
-            }
-            '''
     with st.spinner("执行多线程筛选中...（预计需 1~2 分钟）"):
 
         results = get_dip_stock()
