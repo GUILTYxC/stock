@@ -68,7 +68,7 @@ def get_ma_xl(symbol, end_date, days_range=300):
         # 等待10秒
         print("请求错误，等待10秒后重试")
         time.sleep(10)
-        result_df = ak.stock_zh_a_daily(symbol=full_code, start_date=start_date, end_date=today, adjust="qfq")
+        result_df = ak.stock_zh_a_daily(symbol=full_code, start_date=start_date, end_date=end_date, adjust="qfq")
     except Exception:
         print(symbol + "数据处理失败，已跳过")
         return {
