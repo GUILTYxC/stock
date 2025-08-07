@@ -1,5 +1,8 @@
+import os
 import sqlite3
 import time
+
+import numpy as np
 import pandas as pd
 import akshare as ak
 from datetime import datetime, timedelta
@@ -7,7 +10,10 @@ from datetime import datetime, timedelta
 import requests
 from tqdm import tqdm
 
-DB_PATH = '../ma_cache.db'
+# 获取当前文件（ak.py）所在目录
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+# 数据库在项目根目录下
+DB_PATH = os.path.join(CURRENT_DIR, '..', 'ma_cache.db')
 DEVIATION = 7
 
 
@@ -52,7 +58,7 @@ def get_ma_xl(symbol, days_range=300):
 
     if symbol.startswith('6'):
         full_code = 'sh' + symbol
-    elif symbol.startswith('8'):
+    elif symbol.startswith('8') or symbol.startswith('9'):
         full_code = 'bj' + symbol
     else:
         full_code = 'sz' + symbol
@@ -68,24 +74,56 @@ def get_ma_xl(symbol, days_range=300):
         return {
             'ma50': None,
             'ma200': None,
+            'wma50': None,
+            'ema50': None,
             'current': None
         }
     if len(result_df) >= 50:
-        ma50 = result_df['close'].iloc[-50:].mean()
+        ma50 = round(result_df['close'].iloc[-50:].mean(), 2)
+        wma50 = round(calculate_wma50(result_df), 2)
+        ema50 = round(result_df['close'].ewm(span=50, adjust=False).mean().iloc[-1], 2)
     else:
         ma50 = None  # 或其他处理方式
+        wma50 = None
+        ema50 = None
     if len(result_df) >= 200:
-        ma200 = result_df['close'].iloc[-200:].mean()
+        ma200 = round(result_df['close'].iloc[-200:].mean(), 2)
     else:
         ma200 = None
 
     result = {
         'ma50': ma50,
+        'wma50': wma50,
+        'ema50': ema50,
         'ma200': ma200,
         'current': result_df['close'].iloc[-1]
     }
 
     return result
+
+
+def calculate_wma50(result_df):
+    # 获取最近50天的收盘价
+    recent_closes = result_df['close'].iloc[-50:]
+
+    # 创建权重数组，最新数据权重最高
+    weights = range(1, 51)  # 1到50的权重
+
+    # 计算加权移动平均线
+    wma50 = (recent_closes * weights).sum() / sum(weights)
+
+    return wma50
+
+
+def calculate_wma50_2(result_df):
+    # 假设 result_df 已经按时间升序排列（最老在前，最新在后）
+    prices_50 = result_df['close'].iloc[-50:]  # 最近50天，从旧到新
+
+    weights = np.arange(1, 51)  # 权重从1到50，越近越高
+
+    wma50 = np.average(prices_50, weights=weights)
+
+    return wma50
 
 
 # 检查当前股价是否低于ma50某个百分比
@@ -119,10 +157,17 @@ def init_db():
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute('CREATE TABLE IF NOT EXISTS stock_list (code TEXT PRIMARY KEY, name TEXT)')
         conn.execute(
-            'CREATE TABLE IF NOT EXISTS stock_ma (code TEXT ,name TEXT, ma50 REAL,price REAL, date TEXT ,deviation REAL, PRIMARY KEY (code, date))')
+            'CREATE TABLE IF NOT EXISTS stock_ma (code TEXT ,name TEXT, ma50 REAL,price REAL, date TEXT ,deviation REAL,'
+            'wma50 REAL, ema50 REAL,PERatio REAL, PRIMARY KEY (code, date))')
 
 
 def profcess_all_stock():
+    # 先查所有股票的实时行情，获取市盈率，构建code，市盈率的map
+    stock_base_infos = ak.stock_zh_a_spot_em()
+    stock_pe_map = {
+        stock_base_info[1]: stock_base_info[15]
+        for stock_base_info in stock_base_infos.itertuples(index=False, name=None)
+    }
     with sqlite3.connect(DB_PATH) as conn:
         # 创建游标对象（用于执行查询）
         cursor = conn.cursor()
@@ -144,16 +189,20 @@ def profcess_all_stock():
                     'code': code,
                     'name': name,
                     'ma50': ma_info['ma50'],
+                    'wma50': ma_info['wma50'],
+                    'ema50': ma_info['ema50'],
                     'price': ma_info['current'],
-                    'deviation': deviation
+                    'deviation': deviation,
+                    'PERatio': stock_pe_map[code]
                 })
 
         else:
             deviation = None
         with sqlite3.connect(DB_PATH) as conn:
             conn.execute(
-                'REPLACE INTO stock_ma (code, name,ma50,price, date,deviation) VALUES (?, ?, ?, ?, ?, ?)',
-                (code, name, ma_info['ma50'], ma_info['current'], datetime.today().strftime('%Y%m%d'), deviation,)
+                'REPLACE INTO stock_ma (code, name,ma50,wma50,ema50,price, date,deviation,PERatio) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (code, name, ma_info['ma50'], ma_info['wma50'], ma_info['ema50'], ma_info['current'],
+                 datetime.today().strftime('%Y%m%d'), deviation, stock_pe_map[code])
             )
         # 等待0.5秒再请求
         # time.sleep(0.1)
@@ -163,8 +212,8 @@ def profcess_all_stock():
 def get_dip_stock():
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT code, name, ma50, price, deviation FROM stock_ma WHERE  date = ?",
-                       (datetime.today().strftime('%Y%m%d'),))
+        cursor.execute("SELECT code, name, ma50,wma50,ema50, price, deviation,PERatio FROM stock_ma WHERE  date = ?",
+                       ('20250806',))
         stock_list = cursor.fetchall()
         # 过滤deviation小于-7的
     if not stock_list or len(stock_list) == 0:
@@ -173,12 +222,23 @@ def get_dip_stock():
         'code': stock[0],
         'name': stock[1],
         'ma50': stock[2],
-        'price': stock[3],
-        'deviation': stock[4]
-    } for stock in stock_list if stock[4] < -DEVIATION]
+        'wma50': stock[3],
+        'ema50': stock[4],
+        'price': stock[5],
+        'deviation': stock[6],
+        'PERatio': stock[7]
+    } for stock in stock_list if stock[4] and stock[4] < -DEVIATION]
     return result
 
 
 if __name__ == '__main__':
-    print(profcess_all_stock())
+    # print(get_dip_stock())
     # print(get_ma_xl('836247', 100))
+    # print(get_ma_xl('002847', 100))
+    # stock_base_infos = ak.stock_zh_a_spot_em()
+    # stock_pe_map = {
+    #     stock_base_info[1]: stock_base_info[15]
+    #     for stock_base_info in stock_base_infos.itertuples(index=False, name=None)
+    # }
+    # print(stock_pe_map)
+    print(profcess_all_stock())
