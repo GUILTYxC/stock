@@ -128,8 +128,8 @@ def calculate_wma50_2(result_df):
 
 # 检查当前股价是否低于ma50某个百分比
 def check(ma, deviation):
-    if ma['current'] and ma['ma50']:
-        ratio = ma['current'] / ma['ma50']
+    if ma['current'] and ma['ema50']:
+        ratio = ma['current'] / ma['ema50']
         # 如果当前价格比ma50低7%
         checked = False
         if ratio <= (100 - deviation) / 100:
