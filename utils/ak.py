@@ -14,7 +14,7 @@ from tqdm import tqdm
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 # 数据库在项目根目录下
 DB_PATH = os.path.join(CURRENT_DIR, '..', 'ma_cache.db')
-DEVIATION = 7
+DEVIATION = 6
 
 
 def get_ma(symbol, days_range=300):
