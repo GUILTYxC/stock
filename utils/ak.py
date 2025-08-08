@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import threading
 import time
 
 import numpy as np
@@ -230,12 +231,23 @@ def get_dip_stock():
 
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT code, name, ma50,wma50,ema50, price, deviation,PERatio FROM stock_ma WHERE  date = ? ORDER BY deviation,PERatio ",
-                       (formatted_date,))
+        cursor.execute(
+            "SELECT code, name, ma50,wma50,ema50, price, deviation,PERatio FROM stock_ma WHERE  date = ? ORDER BY deviation,PERatio ",
+            (formatted_date,))
         stock_list = cursor.fetchall()
         # 过滤deviation小于-7的
     if not stock_list or len(stock_list) == 0:
-        return profcess_all_stock(formatted_date)
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute(
+                'REPLACE INTO stock_ma (code,date) VALUES (?, ?)',
+                (formatted_date, datetime.now().strftime("%H%M"),)
+            )
+        # 启新线程
+        threading.Thread(target=profcess_all_stock, args=(formatted_date,)).start()
+        return 40
+    # elif stock_list and len(stock_list) == 1 and stock_list[0][0] == formatted_date:
+    #     return minutes_passed(stock_list[0][1])
+
     result = [{
         'code': stock[0],
         'name': stock[1],
@@ -247,6 +259,29 @@ def get_dip_stock():
         'PERatio': stock[7]
     } for stock in stock_list if stock[6] and stock[6] < -DEVIATION and 'ST' not in stock[1] and 0 < stock[7] < 100]
     return result
+
+
+def minutes_passed(time_str):
+    # 解析time_str为时间对象（假设是今天的时间）
+    # 注意：如果time_str可能是昨天的，需要额外处理日期逻辑
+    target_time = datetime.strptime(time_str, "%H%M").replace(
+        year=datetime.now().year,
+        month=datetime.now().month,
+        day=datetime.now().day
+    )
+
+    # 获取当前时间
+    current_time = datetime.now()
+
+    # 计算时间差（如果目标时间在当前时间之后，说明是昨天的时间）
+    if target_time > current_time:
+        target_time -= timedelta(days=1)
+
+    # 计算分钟差
+    time_diff = current_time - target_time
+    minutes = int(time_diff.total_seconds() // 60)
+
+    return minutes
 
 
 if __name__ == '__main__':

@@ -14,12 +14,15 @@ st.title("筛选器")
 # st.caption("筛选当前价低于50日均线 7% 的 A 股")
 
 if st.button("开始筛选"):
-    with st.spinner("执行多线程筛选中...（预计需 1~2 分钟）"):
+    with st.spinner("执行程筛选中...（预计需 40 分钟）"):
 
         results = get_dip_stock()
 
     if not results:
         st.warning("没有符合条件的股票")
+    # 如果results是整数40
+    if isinstance(results, int):
+        st.spinner("执行筛选中...（预计需 40 分钟）")
     else:
         df = pd.DataFrame(results)
         st.success(f"共筛选出 {len(df)} 支股票")
