@@ -230,7 +230,7 @@ def get_dip_stock():
 
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT code, name, ma50,wma50,ema50, price, deviation,PERatio FROM stock_ma WHERE  date = ?",
+        cursor.execute("SELECT code, name, ma50,wma50,ema50, price, deviation,PERatio FROM stock_ma WHERE  date = ? ORDER BY deviation,PERatio ",
                        (formatted_date,))
         stock_list = cursor.fetchall()
         # 过滤deviation小于-7的
@@ -245,7 +245,7 @@ def get_dip_stock():
         'price': stock[5],
         'deviation': stock[6],
         'PERatio': stock[7]
-    } for stock in stock_list if stock[6] and stock[6] < -DEVIATION and 'ST' not in stock[1]]
+    } for stock in stock_list if stock[6] and stock[6] < -DEVIATION and 'ST' not in stock[1] and 0 < stock[7] < 100]
     return result
 
 
